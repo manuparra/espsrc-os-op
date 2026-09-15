@@ -2,7 +2,7 @@ import os
 import re
 import requests
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -41,6 +41,7 @@ def generate_mock_data():
             "running_vms": 14,
             "state": "up",
             "status": "enabled",
+            "host_aggregates": [{"name": "compute", "availability_zone": "nova", "metadata": {"type": "compute"}}],
             "id": 1
         },
         {
@@ -54,6 +55,7 @@ def generate_mock_data():
             "running_vms": 18,
             "state": "up",
             "status": "enabled",
+            "host_aggregates": [{"name": "compute", "availability_zone": "nova", "metadata": {"type": "compute"}}],
             "id": 2
         },
         {
@@ -67,6 +69,7 @@ def generate_mock_data():
             "running_vms": 8,
             "state": "up",
             "status": "enabled",
+            "host_aggregates": [{"name": "high-memory", "availability_zone": "nova", "metadata": {"type": "high-memory"}}],
             "id": 3
         },
         {
@@ -80,6 +83,7 @@ def generate_mock_data():
             "running_vms": 11,
             "state": "down",
             "status": "disabled",
+            "host_aggregates": [{"name": "maintenance", "availability_zone": "nova", "metadata": {"type": "maintenance"}}],
             "id": 4
         }
     ]
@@ -268,6 +272,22 @@ def login_password(req: PasswordLoginRequest):
             detail=f"Error al autenticar en OpenStack: {str(e)}"
         )
 
+@app.post("/api/logout")
+def logout():
+    session_config.update({
+        "auth_url": "https://spsrc-openstack.iaa.csic.es:5000",
+        "username": None,
+        "password": None,
+        "project_name": "spsrc",
+        "user_domain_name": "Default",
+        "project_domain_name": "Default",
+        "token": None,
+        "nova_url": None,
+        "authenticated": False,
+        "use_mock": True
+    })
+    return {"status": "success"}
+
 @app.post("/api/upload-rc")
 async def upload_rc(file: UploadFile = File(...)):
     try:
@@ -319,11 +339,6 @@ async def upload_rc(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error leyendo el archivo: {str(e)}")
 
-@app.post("/api/toggle-mock")
-def toggle_mock(use_mock: bool = Form(...)):
-    session_config["use_mock"] = use_mock
-    return {"status": "success", "use_mock": use_mock}
-
 @app.get("/api/data")
 def get_data():
     if session_config["use_mock"]:
@@ -345,6 +360,24 @@ def get_data():
         hv_res = requests.get(f"{session_config['nova_url']}/os-hypervisors/detail", headers=headers, timeout=10, verify=False)
         hv_res.raise_for_status()
         hypervisors_raw = hv_res.json().get("hypervisors", [])
+
+        # Fetch host aggregates and associate them with their hypervisors.
+        aggregates_res = requests.get(f"{session_config['nova_url']}/os-aggregates", headers=headers, timeout=10, verify=False)
+        aggregates_res.raise_for_status()
+        aggregates_raw = aggregates_res.json().get("aggregates", [])
+
+        def aggregates_for_host(hostname):
+            short_hostname = (hostname or "").split(".")[0]
+            matches = []
+            for aggregate in aggregates_raw:
+                aggregate_hosts = aggregate.get("hosts", [])
+                if any(host == hostname or host.split(".")[0] == short_hostname for host in aggregate_hosts):
+                    matches.append({
+                        "name": aggregate.get("name", "unknown"),
+                        "availability_zone": aggregate.get("availability_zone"),
+                        "metadata": aggregate.get("metadata", {})
+                    })
+            return matches
         
         # Map hypervisor fields to standard format
         hypervisors = []
@@ -360,6 +393,7 @@ def get_data():
                 "running_vms": h.get("running_vms", 0),
                 "state": h.get("state", "up"),
                 "status": h.get("status", "enabled"),
+                "host_aggregates": aggregates_for_host(h.get("hypervisor_hostname")),
                 "id": h.get("id")
             })
             
@@ -411,10 +445,17 @@ def get_data():
         }
         
     except Exception as e:
-        # Fallback to mock on connection issues during data pull, but indicate it
-        mock_data = generate_mock_data()
-        mock_data["mode"] = f"Fallback Mock Mode (Error communicating with OpenStack: {str(e)})"
-        return mock_data
+        # A token alone is not enough to consider the dashboard connected: the
+        # Nova resources must also be readable. Reset the live session and make
+        # the failure explicit instead of silently presenting mock information.
+        session_config["token"] = None
+        session_config["nova_url"] = None
+        session_config["authenticated"] = False
+        session_config["use_mock"] = True
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudieron cargar datos reales de OpenStack: {str(e)}"
+        )
 
 # Mount static files
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

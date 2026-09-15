@@ -312,6 +312,106 @@
             gap: 1.5rem;
         }
 
+        .nodes-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .aggregate-filter {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .filter-chip, .nodes-view-btn {
+            border: 1px solid var(--glass-border);
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 999px;
+            padding: 0.4rem 0.7rem;
+            cursor: pointer;
+            font: 500 0.75rem var(--font-sans);
+            transition: var(--transition);
+        }
+
+        .filter-chip.active, .nodes-view-btn.active {
+            color: #fff;
+            border-color: rgba(59, 130, 246, 0.55);
+            background: rgba(59, 130, 246, 0.3);
+        }
+
+        .nodes-view-switcher {
+            display: flex;
+            gap: 0.35rem;
+            flex-shrink: 0;
+        }
+
+        .nodes-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.65rem;
+        }
+
+        .nodes-list-header, .node-list-row {
+            display: grid;
+            grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 0.9fr) minmax(150px, 0.9fr) minmax(160px, 0.9fr) minmax(320px, 2fr) 80px;
+            gap: 1rem;
+            align-items: center;
+            min-width: 1180px;
+        }
+
+        .nodes-list-header {
+            padding: 0 1rem;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .node-list-row {
+            padding: 0.8rem 1rem;
+        }
+
+        .node-list-metric {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .node-list-vms {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            min-width: 0;
+            overflow-x: auto;
+            padding: 0.2rem 0 0.35rem;
+        }
+
+        .node-list-vm-badge {
+            flex: 0 0 auto;
+            padding: 0.22rem 0.48rem;
+            border-radius: 5px;
+            border: 1px solid var(--glass-border);
+            background: rgba(255, 255, 255, 0.035);
+            color: var(--text-primary);
+            font: 0.68rem var(--font-mono);
+            white-space: nowrap;
+        }
+
+        .node-list-vm-badge .vm-specs {
+            color: var(--text-muted);
+            margin-left: 0.25rem;
+        }
+
+        .nodes-list-scroll { overflow-x: auto; }
+
         .node-card {
             display: flex;
             flex-direction: column;
@@ -341,6 +441,35 @@
 
         .node-status.up { background: rgba(16, 185, 129, 0.15); color: var(--accent-success); }
         .node-status.down { background: rgba(239, 68, 68, 0.15); color: var(--accent-danger); }
+
+        .host-aggregate-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.35rem;
+            margin-top: 0.55rem;
+        }
+
+        .host-aggregate-label {
+            color: var(--text-muted);
+            font-size: 0.7rem;
+        }
+
+        .host-aggregate-badge {
+            padding: 0.15rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            background: rgba(59, 130, 246, 0.1);
+            color: #93c5fd;
+            font-size: 0.68rem;
+            font-family: var(--font-mono);
+        }
+
+        .host-aggregate-badge.empty {
+            border-color: var(--glass-border);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-muted);
+        }
 
         .progress-container {
             display: flex;
@@ -572,7 +701,7 @@
 
         /* Auth Overlay and Modal Blur */
         body.auth-locked #app-container {
-            filter: blur(12px) opacity(0.4);
+            filter: blur(18px) opacity(0.78);
             pointer-events: none;
             user-select: none;
             transition: filter 0.5s ease, opacity 0.5s ease;
@@ -586,9 +715,9 @@
             position: fixed;
             inset: 0;
             z-index: 2000;
-            background: rgba(9, 11, 15, 0.7);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
+            background: rgba(9, 11, 15, 0.28);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -712,6 +841,34 @@
             filter: brightness(1.1);
         }
 
+        .btn-auth-submit:disabled {
+            cursor: wait;
+            opacity: 0.8;
+            transform: none;
+            filter: none;
+        }
+
+        .auth-spinner {
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            display: none;
+            animation: authSpin 0.75s linear infinite;
+        }
+
+        .btn-auth-submit.is-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.55rem;
+        }
+
+        .btn-auth-submit.is-loading .auth-spinner {
+            display: inline-block;
+        }
+
         .auth-divider {
             display: flex;
             align-items: center;
@@ -737,10 +894,16 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        @keyframes authSpin {
+            to { transform: rotate(360deg); }
+        }
+
         @media (max-width: 768px) {
             body { padding: 1rem; }
             header { flex-direction: column; align-items: flex-start; }
             .upload-container { width: 100%; justify-content: space-between; }
+            .nodes-view-switcher { width: 100%; }
+            .nodes-view-btn { flex: 1; }
         }
     </style>
 </head>
@@ -789,7 +952,10 @@
                             <label id="modal-lbl-pass">Contraseña:</label>
                             <input type="password" id="modal-input-password" class="auth-input" placeholder="Contraseña de OpenStack" required>
                         </div>
-                        <button type="submit" id="modal-btn-login" class="btn-auth-submit">Conectar a OpenStack</button>
+                        <button type="submit" id="modal-btn-login" class="btn-auth-submit">
+                            <span class="auth-spinner" aria-hidden="true"></span>
+                            <span id="modal-btn-login-text">Conectar a OpenStack</span>
+                        </button>
                     </form>
                 </div>
             </div>
@@ -826,7 +992,9 @@
                 <span id="btn-upload-text">Upload OpenStack RC file</span>
             </label>
             <input type="file" id="file-input" accept=".sh">
-            <button id="btn-toggle-mode" class="btn-upload btn-secondary">Simular Datos</button>
+            <button id="btn-logout" class="btn-upload btn-secondary">
+                <span id="btn-logout-text">Cerrar sesión</span>
+            </button>
         </div>
     </header>
 
@@ -880,6 +1048,14 @@
     <main>
         <!-- Tab 1: Vista por Nodos -->
         <div id="tab-nodes" class="tab-content active">
+            <div class="nodes-toolbar">
+                <div id="aggregate-filter" class="aggregate-filter"></div>
+                <div class="nodes-view-switcher" aria-label="Node view layout">
+                    <button id="nodes-view-cards" class="nodes-view-btn active" type="button">Tarjetas</button>
+                    <button id="nodes-view-rows" class="nodes-view-btn" type="button">Filas</button>
+                </div>
+            </div>
+            <div id="nodes-list-header" class="nodes-list-scroll" hidden></div>
             <div class="nodes-grid" id="nodes-container">
                 <!-- Dynamically loaded -->
             </div>

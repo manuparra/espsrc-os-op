@@ -8,6 +8,8 @@ let appData = {
 
 let currentFilterQuery = "";
 let currentStatusFilter = "";
+let selectedAggregateFilters = null;
+let currentNodesView = localStorage.getItem("os-op-nodes-view") || "cards";
 let currentLang = localStorage.getItem("os-op-lang") || "en";
 let currentTheme = localStorage.getItem("os-op-theme") || "dark";
 
@@ -16,8 +18,19 @@ const translations = {
     es: {
         subTitle: "Monitoreo inteligente y visualización en tiempo real de VMs e Hypervisors en la Infraestructura espSRC",
         btnUpload: "Subir archivo OpenStack RC",
-        btnToggleModeMock: "Simular Datos",
-        btnToggleModeLive: "Usar API Real",
+        btnLogout: "Cerrar sesión",
+        toastLogout: "Sesión cerrada",
+        hostAggregate: "Host aggregate",
+        noHostAggregate: "Sin aggregate",
+        filterAggregates: "Filtrar aggregates:",
+        viewCards: "Tarjetas",
+        viewRows: "Filas",
+        noFilteredHypervisors: "No hay hypervisors para los aggregates seleccionados.",
+        listNode: "Hypervisor",
+        listAggregate: "Aggregate",
+        listCpu: "CPU",
+        listRam: "RAM",
+        listVms: "VMs",
         lblStatVms: "Instancias Activas (VMs)",
         lblStatNodes: "Nodos Físicos",
         lblStatCores: "CPUs Totales Asignadas",
@@ -70,13 +83,25 @@ const translations = {
         modalLblPass: "Contraseña:",
         modalInputUsernamePlaceholder: "Usuario (ej. mparra)",
         modalInputPasswordPlaceholder: "Contraseña de OpenStack",
-        modalBtnLogin: "Conectar a OpenStack"
+        modalBtnLogin: "Conectar a OpenStack",
+        modalBtnLoginLoading: "Conectando y cargando datos..."
     },
     en: {
         subTitle: "Intelligent monitoring and real-time visualization of VMs and Hypervisors at the espSRC Infrastructure",
         btnUpload: "Upload OpenStack RC file",
-        btnToggleModeMock: "Simulate Data",
-        btnToggleModeLive: "Use Live API",
+        btnLogout: "Log out",
+        toastLogout: "Logged out",
+        hostAggregate: "Host aggregate",
+        noHostAggregate: "No aggregate",
+        filterAggregates: "Filter aggregates:",
+        viewCards: "Cards",
+        viewRows: "Rows",
+        noFilteredHypervisors: "No hypervisors match the selected aggregates.",
+        listNode: "Hypervisor",
+        listAggregate: "Aggregate",
+        listCpu: "CPU",
+        listRam: "RAM",
+        listVms: "VMs",
         lblStatVms: "Active Instances (VMs)",
         lblStatNodes: "Physical Nodes",
         lblStatCores: "Total Allocated CPUs",
@@ -129,18 +154,23 @@ const translations = {
         modalLblPass: "Password:",
         modalInputUsernamePlaceholder: "Username (e.g. mparra)",
         modalInputPasswordPlaceholder: "OpenStack Password",
-        modalBtnLogin: "Connect to OpenStack"
+        modalBtnLogin: "Connect to OpenStack",
+        modalBtnLoginLoading: "Connecting and loading data..."
     }
 };
 
 // DOM Elements
 const modeIndicator = document.getElementById("mode-indicator");
-const btnToggleMode = document.getElementById("btn-toggle-mode");
+const btnLogout = document.getElementById("btn-logout");
 const fileInput = document.getElementById("file-input");
 const searchBar = document.getElementById("search-bar");
 const filterStatus = document.getElementById("filter-status");
 const langSelect = document.getElementById("lang-select");
 const themeSelect = document.getElementById("theme-select");
+const aggregateFilter = document.getElementById("aggregate-filter");
+const nodesViewCards = document.getElementById("nodes-view-cards");
+const nodesViewRows = document.getElementById("nodes-view-rows");
+const nodesListHeader = document.getElementById("nodes-list-header");
 
 // Stats elements
 const statVms = document.getElementById("stat-vms");
@@ -174,6 +204,7 @@ function applyTranslations() {
     
     document.getElementById("sub-title").textContent = t.subTitle;
     document.getElementById("btn-upload-text").textContent = t.btnUpload;
+    document.getElementById("btn-logout-text").textContent = t.btnLogout;
     
     document.getElementById("lbl-stat-vms").textContent = t.lblStatVms;
     document.getElementById("lbl-stat-nodes").textContent = t.lblStatNodes;
@@ -184,6 +215,8 @@ function applyTranslations() {
     document.getElementById("btn-tab-nodes").textContent = t.tabNodes;
     document.getElementById("btn-tab-search").textContent = t.tabSearch;
     document.getElementById("btn-tab-metadata").textContent = t.tabMetadata;
+    nodesViewCards.textContent = t.viewCards;
+    nodesViewRows.textContent = t.viewRows;
     
     searchBar.placeholder = t.searchPlaceholder;
     document.getElementById("opt-all-status").textContent = t.optAllStatus;
@@ -213,7 +246,10 @@ function applyTranslations() {
         if (document.getElementById("modal-lbl-pass")) document.getElementById("modal-lbl-pass").textContent = t.modalLblPass;
         document.getElementById("modal-input-username").placeholder = t.modalInputUsernamePlaceholder;
         document.getElementById("modal-input-password").placeholder = t.modalInputPasswordPlaceholder;
-        document.getElementById("modal-btn-login").textContent = t.modalBtnLogin;
+        const loginButtonText = document.getElementById("modal-btn-login-text");
+        if (loginButtonText && !document.getElementById("modal-btn-login").disabled) {
+            loginButtonText.textContent = t.modalBtnLogin;
+        }
     }
 
     updateHeaderAndMode();
@@ -230,14 +266,17 @@ async function checkAuthStatus() {
             }
             
             if (data.authenticated) {
-                unlockDashboard();
+                return true;
             } else {
                 lockDashboard();
+                return false;
             }
         }
     } catch (e) {
         console.error("Error checking auth status:", e);
     }
+    lockDashboard();
+    return false;
 }
 
 function lockDashboard() {
@@ -250,6 +289,23 @@ function unlockDashboard() {
     document.body.classList.remove("auth-locked");
     const overlay = document.getElementById("auth-overlay");
     if (overlay) overlay.style.display = "none";
+}
+
+function setLoginLoading(isLoading) {
+    const button = document.getElementById("modal-btn-login");
+    const buttonText = document.getElementById("modal-btn-login-text");
+    const usernameInput = document.getElementById("modal-input-username");
+    const passwordInput = document.getElementById("modal-input-password");
+    if (!button || !buttonText) return;
+
+    button.disabled = isLoading;
+    button.classList.toggle("is-loading", isLoading);
+    button.setAttribute("aria-busy", String(isLoading));
+    buttonText.textContent = isLoading
+        ? translations[currentLang].modalBtnLoginLoading
+        : translations[currentLang].modalBtnLogin;
+    if (usernameInput) usernameInput.disabled = isLoading;
+    if (passwordInput) passwordInput.disabled = isLoading;
 }
 
 // Apply Theme
@@ -265,17 +321,22 @@ function applyTheme() {
 async function fetchData() {
     try {
         const response = await fetch("/api/data");
-        if (!response.ok) throw new Error("Error fetching data from API");
-        appData = await response.json();
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.detail || "Error fetching data from API");
+        }
+        appData = result;
         
         updateHeaderAndMode();
         calculateAndRenderStats();
         renderNodesView();
         renderSearchView();
         renderMetadataView();
+        return true;
     } catch (error) {
         const t = translations[currentLang];
         showToast(t.toastErrorLoad + error.message, "error");
+        return false;
     }
 }
 
@@ -294,10 +355,8 @@ function updateHeaderAndMode() {
     const currentIsMock = appData.mode.includes("Mock") || appData.mode.includes("Fallback");
     if (!currentIsMock) {
         modeIndicator.className = "status-badge live";
-        btnToggleMode.textContent = t.btnToggleModeMock;
     } else {
         modeIndicator.className = "status-badge mock";
-        btnToggleMode.textContent = t.btnToggleModeLive;
     }
 }
 
@@ -359,13 +418,53 @@ function calculateAndRenderStats() {
 function renderNodesView() {
     const t = translations[currentLang];
     nodesContainer.innerHTML = "";
-    
+    nodesContainer.className = currentNodesView === "rows" ? "nodes-list nodes-list-scroll" : "nodes-grid";
+    nodesViewCards.classList.toggle("active", currentNodesView === "cards");
+    nodesViewRows.classList.toggle("active", currentNodesView === "rows");
+
     if (appData.hypervisors.length === 0) {
+        aggregateFilter.innerHTML = "";
+        nodesListHeader.hidden = true;
         nodesContainer.innerHTML = `<div class='glass-panel' style='grid-column: 1/-1; text-align: center; color: var(--text-secondary);'>${t.noHypervisors}</div>`;
         return;
     }
 
-    appData.hypervisors.forEach(node => {
+    const noAggregateKey = "__no_aggregate__";
+    const availableAggregates = [...new Set(appData.hypervisors.flatMap(node =>
+        (node.host_aggregates || []).map(aggregate => aggregate.name)
+    ))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    if (appData.hypervisors.some(node => !(node.host_aggregates || []).length)) availableAggregates.push(noAggregateKey);
+    if (selectedAggregateFilters === null) selectedAggregateFilters = new Set(availableAggregates);
+    selectedAggregateFilters = new Set([...selectedAggregateFilters].filter(name => availableAggregates.includes(name)));
+
+    aggregateFilter.innerHTML = `<span class="host-aggregate-label">${t.filterAggregates}</span>` + availableAggregates.map(name => {
+        const label = name === noAggregateKey ? t.noHostAggregate : name;
+        const active = selectedAggregateFilters.has(name);
+        return `<button type="button" class="filter-chip${active ? " active" : ""}" data-aggregate="${name}" aria-pressed="${active}">${label}</button>`;
+    }).join("");
+
+    const sortedHypervisors = appData.hypervisors.filter(node => {
+        const nodeAggregates = (node.host_aggregates || []).map(aggregate => aggregate.name);
+        return nodeAggregates.length
+            ? nodeAggregates.some(name => selectedAggregateFilters.has(name))
+            : selectedAggregateFilters.has(noAggregateKey);
+    }).sort((a, b) =>
+        (a.hypervisor_hostname || "").localeCompare(
+            b.hypervisor_hostname || "",
+            undefined,
+            { numeric: true, sensitivity: "base" }
+        )
+    );
+
+    nodesListHeader.hidden = currentNodesView !== "rows";
+    nodesListHeader.innerHTML = currentNodesView === "rows" ? `<div class="nodes-list-header"><span>${t.listNode}</span><span>${t.listAggregate}</span><span>${t.listCpu}</span><span>${t.listRam}</span><span>${t.listVms}</span><span>${t.thStatus}</span></div>` : "";
+
+    if (sortedHypervisors.length === 0) {
+        nodesContainer.innerHTML = `<div class='glass-panel' style='text-align: center; color: var(--text-secondary);'>${t.noFilteredHypervisors}</div>`;
+        return;
+    }
+
+    sortedHypervisors.forEach(node => {
         // Group VMs for this node
         const nodeVMs = appData.servers.filter(s => s["OS-EXT-SRV-ATTR:hypervisor_hostname"] === node.hypervisor_hostname);
         
@@ -380,7 +479,6 @@ function renderNodesView() {
         };
 
         const card = document.createElement("div");
-        card.className = "glass-panel node-card";
         
         let vmsListHtml = nodeVMs.map(vm => {
             const cores = vm.flavor?.vcpus || 0;
@@ -398,11 +496,39 @@ function renderNodesView() {
             vmsListHtml = `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 1rem 0;">${t.noVmsAssigned}</div>`;
         }
 
-        card.innerHTML = `
+        const aggregateLabels = (node.host_aggregates || []).map(aggregate => {
+            const type = aggregate.metadata?.type || aggregate.name;
+            const zone = aggregate.availability_zone ? ` · ${aggregate.availability_zone}` : "";
+            return `<span class="host-aggregate-badge">${type}${zone}</span>`;
+        }).join("") || `<span class="host-aggregate-badge empty">${t.noHostAggregate}</span>`;
+
+        const compactVmsHtml = nodeVMs.map(vm => {
+            const cores = vm.flavor?.vcpus || 0;
+            const ramMb = vm.flavor?.ram || 0;
+            const ramLabel = ramMb >= 1024 ? `${(ramMb / 1024).toFixed(ramMb % 1024 === 0 ? 0 : 1)}GB` : `${ramMb}MB`;
+            return `<span class="node-list-vm-badge">${vm.name}<span class="vm-specs">${cores}c/${ramLabel}</span></span>`;
+        }).join("") || `<span class="host-aggregate-label">${t.noVmsAssigned}</span>`;
+
+        if (currentNodesView === "rows") {
+            card.className = "glass-panel node-list-row";
+            card.innerHTML = `
+                <div><div class="node-title">${node.hypervisor_hostname}</div><div class="host-aggregate-label">ID: ${node.id}</div></div>
+                <div class="host-aggregate-row">${aggregateLabels}</div>
+                <div class="node-list-metric"><span>${node.vcpus_used} / ${node.vcpus} (${cpuPct}%)</span><div class="progress-bg"><div class="progress-fill ${getProgressClass(cpuPct)}" style="width:${cpuPct}%"></div></div></div>
+                <div class="node-list-metric"><span>${Math.round(node.memory_mb_used / 1024)} / ${Math.round(node.memory_mb / 1024)} GB (${ramPct}%)</span><div class="progress-bg"><div class="progress-fill ${getProgressClass(ramPct)}" style="width:${ramPct}%"></div></div></div>
+                <div class="node-list-vms"><strong>${nodeVMs.length}</strong>${compactVmsHtml}</div>
+                <span class="node-status ${node.state.toLowerCase()}">${node.state.toUpperCase()}</span>`;
+        } else {
+            card.className = "glass-panel node-card";
+            card.innerHTML = `
             <div class="node-header">
                 <div>
                     <div class="node-title">${node.hypervisor_hostname}</div>
                     <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">ID: ${node.id}</div>
+                    <div class="host-aggregate-row">
+                        <span class="host-aggregate-label">${t.hostAggregate}:</span>
+                        ${aggregateLabels}
+                    </div>
                 </div>
                 <span class="node-status ${node.state.toLowerCase()}">${node.state.toUpperCase()}</span>
             </div>
@@ -437,9 +563,28 @@ function renderNodesView() {
                 </div>
             </div>
         `;
+        }
         nodesContainer.appendChild(card);
     });
 }
+
+aggregateFilter.addEventListener("click", event => {
+    const button = event.target.closest("[data-aggregate]");
+    if (!button) return;
+    const aggregateName = button.dataset.aggregate;
+    if (selectedAggregateFilters.has(aggregateName)) selectedAggregateFilters.delete(aggregateName);
+    else selectedAggregateFilters.add(aggregateName);
+    renderNodesView();
+});
+
+function setNodesView(view) {
+    currentNodesView = view;
+    localStorage.setItem("os-op-nodes-view", view);
+    renderNodesView();
+}
+
+nodesViewCards.addEventListener("click", () => setNodesView("cards"));
+nodesViewRows.addEventListener("click", () => setNodesView("rows"));
 
 // Tab 2: Render Search View
 function renderSearchView() {
@@ -605,12 +750,15 @@ async function handleRcUpload(file) {
         const result = await response.json();
         if (response.ok) {
             if (result.status === "success") {
-                showToast(result.message, "success");
-                unlockDashboard();
+                selectedAggregateFilters = null;
+                const dataLoaded = await fetchData();
+                if (dataLoaded) {
+                    showToast(result.message, "success");
+                    unlockDashboard();
+                }
             } else {
                 showToast(result.message, "warning");
             }
-            fetchData();
         } else {
             showToast(result.detail || t.toastErrorUpload, "error");
         }
@@ -648,6 +796,7 @@ if (authPassForm) {
             return;
         }
 
+        setLoginLoading(true);
         try {
             const response = await fetch("/api/login-password", {
                 method: "POST",
@@ -659,42 +808,40 @@ if (authPassForm) {
 
             const result = await response.json();
             if (response.ok) {
-                showToast(result.message, "success");
-                passwordInput.value = "";
-                unlockDashboard();
-                fetchData();
+                selectedAggregateFilters = null;
+                const dataLoaded = await fetchData();
+                if (dataLoaded) {
+                    showToast(result.message, "success");
+                    passwordInput.value = "";
+                    unlockDashboard();
+                }
             } else {
                 showToast(result.detail || "Error al autenticar", "error");
             }
         } catch (err) {
             showToast("Error: " + err.message, "error");
+        } finally {
+            setLoginLoading(false);
         }
     });
 }
 
-// Toggle Mock Mode Event
-btnToggleMode.addEventListener("click", async () => {
-    const t = translations[currentLang];
-    const currentIsMock = appData.mode.includes("Mock") || appData.mode.includes("Fallback");
-    const newMockState = !currentIsMock;
-
-    const formData = new FormData();
-    formData.append("use_mock", newMockState);
-
+// End the server-side session and return to the authentication screen.
+btnLogout.addEventListener("click", async () => {
+    btnLogout.disabled = true;
     try {
-        const response = await fetch("/api/toggle-mock", {
-            method: "POST",
-            body: formData
-        });
-        
-        if (response.ok) {
-            showToast(newMockState ? t.toastMockOn : t.toastMockOff, "success");
-            fetchData();
-        } else {
-            showToast(t.toastErrorMode, "error");
-        }
+        const response = await fetch("/api/logout", { method: "POST" });
+        if (!response.ok) throw new Error("Logout failed");
+        lockDashboard();
+        selectedAggregateFilters = null;
+        await fetchData();
+        document.getElementById("modal-input-username").value = "";
+        document.getElementById("modal-input-password").value = "";
+        showToast(translations[currentLang].toastLogout, "success");
     } catch (err) {
-        showToast(t.toastErrorConn + err.message, "error");
+        showToast(translations[currentLang].toastErrorConn + err.message, "error");
+    } finally {
+        btnLogout.disabled = false;
     }
 });
 
@@ -728,11 +875,16 @@ filterStatus.addEventListener("change", (e) => {
     renderSearchView();
 });
 
-// Initial load
-applyTheme();
-applyTranslations();
-checkAuthStatus();
-fetchData();
+// Initial load. Authentication and data loading are deliberately sequential to
+// prevent a stale auth-status response from locking the dashboard after login.
+async function initializeApp() {
+    applyTheme();
+    applyTranslations();
+    const isAuthenticated = await checkAuthStatus();
+    const dataLoaded = await fetchData();
+    if (isAuthenticated && dataLoaded) unlockDashboard();
+}
+
+initializeApp();
 // Auto refresh every 30 seconds
 setInterval(fetchData, 30000);
-
